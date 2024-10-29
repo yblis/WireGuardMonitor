@@ -1,6 +1,6 @@
 import sqlite3
 from datetime import datetime
-from typing import List
+from typing import List, Dict
 from models import WireGuardConnection
 
 class Database:
@@ -21,6 +21,12 @@ class Database:
                     bytes_received INTEGER DEFAULT 0,
                     bytes_sent INTEGER DEFAULT 0
                 )
+            """)
+            
+            # Create index for faster queries
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_peer_timestamp 
+                ON connections(peer_id, timestamp)
             """)
             conn.commit()
 
@@ -90,3 +96,37 @@ class Database:
                 bytes_received=row['bytes_received'],
                 bytes_sent=row['bytes_sent']
             ) for row in cursor.fetchall()]
+
+    def get_bandwidth_usage(self, time_range: str = 'day') -> List[Dict]:
+        """Get bandwidth usage statistics per user for the specified time range"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            
+            # Define the time filter based on the range
+            time_filters = {
+                'hour': "AND timestamp >= datetime('now', '-1 hour')",
+                'day': "AND timestamp >= datetime('now', '-1 day')",
+                'week': "AND timestamp >= datetime('now', '-7 days')",
+                'month': "AND timestamp >= datetime('now', '-30 days')",
+                'all': ""
+            }
+            
+            time_filter = time_filters.get(time_range, time_filters['day'])
+            
+            query = f"""
+                SELECT 
+                    peer_id,
+                    SUM(bytes_sent) as total_bytes_sent,
+                    SUM(bytes_received) as total_bytes_received,
+                    COUNT(*) as connection_count,
+                    MIN(timestamp) as first_seen,
+                    MAX(timestamp) as last_seen
+                FROM connections 
+                WHERE event_type = 'transfer'
+                {time_filter}
+                GROUP BY peer_id
+                ORDER BY (total_bytes_sent + total_bytes_received) DESC
+            """
+            
+            cursor = conn.execute(query)
+            return [dict(row) for row in cursor.fetchall()]

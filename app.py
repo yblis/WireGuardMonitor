@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from datetime import datetime, timedelta
 import pandas as pd
 from database import Database
@@ -18,6 +18,23 @@ def handle_db_error(error):
     app.logger.error(f"Database error: {str(error)}\n{traceback.format_exc()}")
     return "Database error occurred", 500
 
+def format_bytes(bytes_value):
+    """Format bytes to human-readable format"""
+    if bytes_value == 0:
+        return "0 B"
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    i = 0
+    while bytes_value >= 1024 and i < len(units)-1:
+        bytes_value /= 1024.
+        i += 1
+    return f"{bytes_value:.2f} {units[i]}"
+
+def format_timestamp(timestamp):
+    """Format timestamp to human-readable format"""
+    if isinstance(timestamp, str):
+        timestamp = datetime.fromisoformat(timestamp)
+    return timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
 @app.route('/')
 def dashboard():
     try:
@@ -33,6 +50,27 @@ def dashboard():
         return render_template('dashboard.html', active_connections=active_data)
     except sqlite3.Error as e:
         return handle_db_error(e)
+
+@app.route('/bandwidth')
+def bandwidth():
+    try:
+        bandwidth_stats = db.get_bandwidth_usage()
+        return render_template('bandwidth.html', 
+                             bandwidth_stats=bandwidth_stats,
+                             format_bytes=format_bytes,
+                             format_timestamp=format_timestamp)
+    except sqlite3.Error as e:
+        return handle_db_error(e)
+
+@app.route('/api/bandwidth')
+def api_bandwidth():
+    try:
+        time_range = request.args.get('range', 'day')
+        bandwidth_stats = db.get_bandwidth_usage(time_range)
+        return jsonify({'stats': bandwidth_stats})
+    except sqlite3.Error as e:
+        app.logger.error(f"Database error in bandwidth API: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': 'Database error occurred'}), 500
 
 @app.route('/connections')
 def connections():

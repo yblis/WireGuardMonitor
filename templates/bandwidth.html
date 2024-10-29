@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold">Bandwidth Usage per User</h2>
+        <div class="flex space-x-2">
+            <select id="timeRange" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                <option value="hour">Last Hour</option>
+                <option value="day" selected>Last 24 Hours</option>
+                <option value="week">Last 7 Days</option>
+                <option value="month">Last 30 Days</option>
+                <option value="all">All Time</option>
+            </select>
+        </div>
+    </div>
+    
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Peer ID</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sent</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Received</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Traffic</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Connection Count</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200" id="bandwidthTable">
+                {% for stat in bandwidth_stats %}
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ stat.peer_id }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ format_bytes(stat.total_bytes_sent) }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ format_bytes(stat.total_bytes_received) }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ format_bytes(stat.total_bytes_sent + stat.total_bytes_received) }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ stat.connection_count }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ format_timestamp(stat.last_seen) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+document.getElementById('timeRange').addEventListener('change', function() {
+    fetch(`/api/bandwidth?range=${this.value}`)
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('bandwidthTable');
+            tbody.innerHTML = data.stats.map(stat => `
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">${stat.peer_id}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatBytes(stat.total_bytes_sent)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatBytes(stat.total_bytes_received)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatBytes(stat.total_bytes_sent + stat.total_bytes_received)}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${stat.connection_count}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">${formatTimestamp(stat.last_seen)}</td>
+                </tr>
+            `).join('');
+        });
+});
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatTimestamp(timestamp) {
+    return new Date(timestamp).toLocaleString();
+}
+</script>
+{% endblock %}
