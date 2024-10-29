@@ -34,6 +34,17 @@
                         </a>
                     </div>
                 </div>
+                <div class="flex items-center space-x-4">
+                    {% if data_source %}
+                    <span class="text-sm text-gray-600">
+                        Data Source: {{ data_source }}
+                    </span>
+                    {% endif %}
+                    <button onclick="window.location.reload()" 
+                            class="bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600 transition-colors">
+                        Refresh
+                    </button>
+                </div>
             </div>
         </div>
     </nav>
@@ -49,6 +60,11 @@
                 if (typeof updateDashboard === 'function') updateDashboard(data);
                 if (typeof updateConnections === 'function') updateConnections(data);
                 if (typeof updateTraffic === 'function') updateTraffic(data);
+                
+                // Update data source display
+                if (data.data_source) {
+                    $('.data-source').text('Data Source: ' + data.data_source);
+                }
             });
         }
         setInterval(refreshData, 30000);

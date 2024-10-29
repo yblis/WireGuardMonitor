@@ -3,7 +3,7 @@ import os
 import logging
 import subprocess
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict
 from models import WireGuardConnection
 
 # Configure logging
@@ -15,7 +15,11 @@ logger = logging.getLogger('WireGuardLogParser')
 
 class WireGuardLogParser:
     def __init__(self):
-        self.log_file = os.getenv('LOG_FILE_PATH', '/var/log/wireguard/wg0.log')
+        self.log_locations = [
+            '/var/log/wireguard/wg0.log',
+            '/var/log/syslog',
+            '/var/log/messages'
+        ]
         self.connection_pattern = re.compile(
             r'peer ([\w+/=]+) \(([\d.]+)\): (connection established|disconnected)'
         )
@@ -25,61 +29,89 @@ class WireGuardLogParser:
         self.wg_dump_pattern = re.compile(
             r'^([\w+/=]+)\t([\d.]+:\d+)?\t\d+\t(\d+)\t(\d+)$'
         )
-        logger.info(f"Initialized WireGuard log parser with log file: {self.log_file}")
+        self.current_source = None
+        logger.info("Initialized WireGuard log parser")
 
-    def get_wg_dump(self) -> List[WireGuardConnection]:
-        """Get current connections using 'wg show all dump' command"""
+    def get_wg_dump(self, sudo: bool = False) -> List[WireGuardConnection]:
+        """Get current connections using WireGuard commands"""
+        connections = []
+        commands = [
+            ['wg', 'show', 'all', 'dump'],
+            ['sudo', 'wg', 'show', 'all', 'dump'] if sudo else None
+        ]
+
+        for cmd in commands:
+            if not cmd:
+                continue
+
+            try:
+                logger.debug(f"Attempting to get WireGuard status using: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                timestamp = datetime.now()
+
+                for line in result.stdout.splitlines():
+                    match = self.wg_dump_pattern.match(line)
+                    if match:
+                        public_key, endpoint, rx_bytes, tx_bytes = match.groups()
+                        ip_address = endpoint.split(':')[0] if endpoint else ''
+                        
+                        conn = WireGuardConnection(
+                            id=0,
+                            peer_id=public_key[:8],
+                            public_key=public_key,
+                            timestamp=timestamp,
+                            event_type='transfer',
+                            ip_address=ip_address,
+                            bytes_received=int(rx_bytes),
+                            bytes_sent=int(tx_bytes)
+                        )
+                        connections.append(conn)
+                        logger.debug(f"Parsed connection from wg dump: peer_id={conn.peer_id}")
+
+                if connections:
+                    self.current_source = f"wg dump ({'sudo' if sudo else 'normal'})"
+                    return connections
+
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Error running {cmd[0]}: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error parsing wg dump output from {cmd[0]}: {str(e)}")
+
+        return []
+
+    def get_journalctl_logs(self) -> List[str]:
+        """Get WireGuard logs from journalctl"""
         try:
-            logger.debug("Attempting to get WireGuard status using 'wg show all dump'")
-            result = subprocess.run(['wg', 'show', 'all', 'dump'], 
-                                 capture_output=True, text=True, check=True)
-            connections = []
-            timestamp = datetime.now()
-
-            for line in result.stdout.splitlines():
-                match = self.wg_dump_pattern.match(line)
-                if match:
-                    public_key, endpoint, rx_bytes, tx_bytes = match.groups()
-                    ip_address = endpoint.split(':')[0] if endpoint else ''
-                    
-                    conn = WireGuardConnection(
-                        id=0,
-                        peer_id=public_key[:8],
-                        public_key=public_key,
-                        timestamp=timestamp,
-                        event_type='transfer',
-                        ip_address=ip_address,
-                        bytes_received=int(rx_bytes),
-                        bytes_sent=int(tx_bytes)
-                    )
-                    connections.append(conn)
-                    logger.debug(f"Parsed connection from wg dump: peer_id={conn.peer_id}")
-
-            return connections
+            logger.debug("Attempting to get WireGuard logs from journalctl")
+            cmd = ['journalctl', '-u', 'wg-quick@wg0', '--no-pager', '-n', '1000']
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            if result.stdout:
+                self.current_source = "journalctl"
+                return result.stdout.splitlines()
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error running 'wg show all dump': {str(e)}")
-            return []
+            logger.warning(f"Error getting journalctl logs: {str(e)}")
         except Exception as e:
-            logger.error(f"Error parsing wg dump output: {str(e)}")
-            return []
+            logger.error(f"Error processing journalctl output: {str(e)}")
+        return []
 
     def read_log_file(self) -> Tuple[List[str], str]:
-        """Read the WireGuard log file or fall back to wg dump"""
-        try:
-            if os.path.exists(self.log_file):
-                with open(self.log_file, 'r') as f:
-                    lines = f.readlines()
-                logger.debug(f"Read {len(lines)} lines from log file: {self.log_file}")
-                return lines, 'log_file'
-            else:
-                logger.warning(f"Log file not found: {self.log_file}, falling back to wg dump")
-                return [], 'wg_dump'
-        except PermissionError:
-            logger.warning(f"Permission denied accessing log file: {self.log_file}, falling back to wg dump")
-            return [], 'wg_dump'
-        except Exception as e:
-            logger.error(f"Error reading log file: {str(e)}, falling back to wg dump")
-            return [], 'wg_dump'
+        """Try reading from multiple log file locations"""
+        for log_file in self.log_locations:
+            try:
+                if os.path.exists(log_file):
+                    logger.debug(f"Attempting to read log file: {log_file}")
+                    with open(log_file, 'r') as f:
+                        lines = f.readlines()
+                    self.current_source = f"log file ({log_file})"
+                    logger.info(f"Successfully read {len(lines)} lines from {log_file}")
+                    return lines, self.current_source
+            except PermissionError:
+                logger.warning(f"Permission denied accessing log file: {log_file}")
+            except Exception as e:
+                logger.error(f"Error reading log file {log_file}: {str(e)}")
+
+        logger.warning("No readable log files found")
+        return [], "none"
 
     def parse_line(self, line: str) -> Optional[WireGuardConnection]:
         """Parse a single line from the WireGuard log"""
@@ -127,22 +159,45 @@ class WireGuardLogParser:
 
         return None
 
+    def get_data_source(self) -> str:
+        """Return the current data source being used"""
+        return self.current_source or "unknown"
+
     def parse_logs(self) -> List[WireGuardConnection]:
-        """Parse all new log entries with fallback to wg dump"""
+        """Parse WireGuard data from all available sources"""
         connections = []
-        
-        # Try reading from log file first
+        self.current_source = None
+
+        # Try wg dump command first
+        connections = self.get_wg_dump(sudo=False)
+        if connections:
+            return connections
+
+        # Try sudo wg dump
+        connections = self.get_wg_dump(sudo=True)
+        if connections:
+            return connections
+
+        # Try reading from log files
         lines, source = self.read_log_file()
-        
-        if source == 'log_file':
-            logger.info("Using log file as data source")
+        if lines:
             for line in lines:
                 conn = self.parse_line(line)
                 if conn:
                     connections.append(conn)
-        else:
-            logger.info("Using wg dump as data source")
-            connections = self.get_wg_dump()
-        
-        logger.info(f"Parsed {len(connections)} connections from {source}")
+            if connections:
+                return connections
+
+        # Try journalctl as last resort
+        journal_lines = self.get_journalctl_logs()
+        if journal_lines:
+            for line in journal_lines:
+                conn = self.parse_line(line)
+                if conn:
+                    connections.append(conn)
+
+        if not connections:
+            logger.warning("No WireGuard data could be obtained from any source")
+            self.current_source = "none"
+
         return connections
