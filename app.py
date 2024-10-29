@@ -5,6 +5,7 @@ from database import Database
 from log_parser import WireGuardLogParser
 from utils import create_connection_timeline, create_traffic_graph
 from security_monitor import SecurityMonitor
+from models import AlertRule
 import sqlite3
 import traceback
 import atexit
@@ -113,6 +114,95 @@ def logs():
         return render_template('logs.html', logs=logs_data)
     except sqlite3.Error as e:
         return handle_db_error(e)
+
+@app.route('/alert-rules')
+def alert_rules():
+    try:
+        rules = db.get_alert_rules()
+        return render_template('alert_rules.html', alert_rules=rules)
+    except sqlite3.Error as e:
+        return handle_db_error(e)
+
+@app.route('/api/alert-rules', methods=['GET', 'POST'])
+def api_alert_rules():
+    try:
+        if request.method == 'POST':
+            data = request.json
+            rule = AlertRule(
+                id=None,
+                name=data['name'],
+                event_type=data['event_type'],
+                condition=data['condition'],
+                threshold=float(data['threshold']),
+                time_window=int(data['time_window']),
+                action=data['action'],
+                enabled=True,
+                last_triggered=None,
+                description=data.get('description', '')
+            )
+            rule_id = db.add_alert_rule(rule)
+            return jsonify({'id': rule_id})
+        else:
+            rules = db.get_alert_rules()
+            return jsonify([vars(rule) for rule in rules])
+    except Exception as e:
+        app.logger.error(f"Error in alert rules API: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alert-rules/<int:rule_id>', methods=['GET', 'PUT', 'DELETE'])
+def api_alert_rule(rule_id):
+    try:
+        if request.method == 'GET':
+            rules = db.get_alert_rules()
+            rule = next((r for r in rules if r.id == rule_id), None)
+            if rule:
+                return jsonify(vars(rule))
+            return jsonify({'error': 'Rule not found'}), 404
+            
+        elif request.method == 'PUT':
+            data = request.json
+            rule = AlertRule(
+                id=rule_id,
+                name=data['name'],
+                event_type=data['event_type'],
+                condition=data['condition'],
+                threshold=float(data['threshold']),
+                time_window=int(data['time_window']),
+                action=data['action'],
+                enabled=True,
+                last_triggered=None,
+                description=data.get('description', '')
+            )
+            success = db.update_alert_rule(rule)
+            if success:
+                return jsonify({'status': 'success'})
+            return jsonify({'error': 'Rule not found'}), 404
+            
+        elif request.method == 'DELETE':
+            success = db.delete_alert_rule(rule_id)
+            if success:
+                return jsonify({'status': 'success'})
+            return jsonify({'error': 'Rule not found'}), 404
+            
+    except Exception as e:
+        app.logger.error(f"Error in alert rule API: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alert-rules/<int:rule_id>/toggle', methods=['POST'])
+def api_toggle_rule(rule_id):
+    try:
+        data = request.json
+        rules = db.get_alert_rules()
+        rule = next((r for r in rules if r.id == rule_id), None)
+        if rule:
+            rule.enabled = data['enabled']
+            success = db.update_alert_rule(rule)
+            if success:
+                return jsonify({'status': 'success'})
+        return jsonify({'error': 'Rule not found'}), 404
+    except Exception as e:
+        app.logger.error(f"Error toggling rule: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/data')
 def api_data():

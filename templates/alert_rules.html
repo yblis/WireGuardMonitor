@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold">Custom Alert Rules</h2>
+        <button id="addRuleBtn" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">
+            Add New Rule
+        </button>
+    </div>
+
+    <!-- Alert Rules Table -->
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Type</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Condition</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Threshold</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time Window</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for rule in alert_rules %}
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ rule.name }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ rule.event_type }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ rule.condition }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ rule.threshold }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ rule.time_window }} min</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ rule.action }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                            {% if rule.enabled %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                            {{ 'Active' if rule.enabled else 'Disabled' }}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                        <button onclick="editRule({{ rule.id }})" class="text-indigo-600 hover:text-indigo-900">Edit</button>
+                        <button onclick="toggleRule({{ rule.id }}, {{ rule.enabled|tojson }})" 
+                                class="{% if rule.enabled %}text-red-600 hover:text-red-900{% else %}text-green-600 hover:text-green-900{% endif %}">
+                            {{ 'Disable' if rule.enabled else 'Enable' }}
+                        </button>
+                        <button onclick="deleteRule({{ rule.id }})" class="text-red-600 hover:text-red-900">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Modal for adding/editing rules -->
+    <div id="ruleModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-medium mb-4" id="modalTitle">Add New Rule</h3>
+            <form id="ruleForm">
+                <input type="hidden" id="ruleId" name="id" value="">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Name</label>
+                        <input type="text" id="ruleName" name="name" required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Event Type</label>
+                        <select id="eventType" name="event_type" required
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                            <option value="connection">Connection</option>
+                            <option value="traffic">Traffic</option>
+                            <option value="bandwidth">Bandwidth</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Condition</label>
+                        <select id="condition" name="condition" required
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                            <option value="gt">Greater Than</option>
+                            <option value="lt">Less Than</option>
+                            <option value="eq">Equal To</option>
+                            <option value="contains">Contains</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Threshold</label>
+                        <input type="number" id="threshold" name="threshold" required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Time Window (minutes)</label>
+                        <input type="number" id="timeWindow" name="time_window" required min="1"
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Action</label>
+                        <select id="action" name="action" required
+                                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                            <option value="email">Send Email</option>
+                            <option value="log">Log Only</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Description</label>
+                        <textarea id="description" name="description"
+                                  class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"></textarea>
+                    </div>
+                </div>
+                <div class="mt-5 flex justify-end space-x-2">
+                    <button type="button" onclick="closeModal()"
+                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700">
+                        Save
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+const modal = document.getElementById('ruleModal');
+const form = document.getElementById('ruleForm');
+const addButton = document.getElementById('addRuleBtn');
+
+addButton.onclick = () => {
+    document.getElementById('modalTitle').textContent = 'Add New Rule';
+    form.reset();
+    document.getElementById('ruleId').value = '';
+    modal.classList.remove('hidden');
+};
+
+function closeModal() {
+    modal.classList.add('hidden');
+}
+
+function editRule(ruleId) {
+    fetch(`/api/alert-rules/${ruleId}`)
+        .then(response => response.json())
+        .then(rule => {
+            document.getElementById('modalTitle').textContent = 'Edit Rule';
+            document.getElementById('ruleId').value = rule.id;
+            document.getElementById('ruleName').value = rule.name;
+            document.getElementById('eventType').value = rule.event_type;
+            document.getElementById('condition').value = rule.condition;
+            document.getElementById('threshold').value = rule.threshold;
+            document.getElementById('timeWindow').value = rule.time_window;
+            document.getElementById('action').value = rule.action;
+            document.getElementById('description').value = rule.description;
+            modal.classList.remove('hidden');
+        });
+}
+
+function toggleRule(ruleId, currentState) {
+    fetch(`/api/alert-rules/${ruleId}/toggle`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: !currentState})
+    }).then(() => window.location.reload());
+}
+
+function deleteRule(ruleId) {
+    if (confirm('Are you sure you want to delete this rule?')) {
+        fetch(`/api/alert-rules/${ruleId}`, {
+            method: 'DELETE'
+        }).then(() => window.location.reload());
+    }
+}
+
+form.onsubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(form);
+    const ruleId = formData.get('id');
+    const method = ruleId ? 'PUT' : 'POST';
+    const url = ruleId ? `/api/alert-rules/${ruleId}` : '/api/alert-rules';
+    
+    fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(Object.fromEntries(formData))
+    }).then(() => {
+        closeModal();
+        window.location.reload();
+    });
+};
+</script>
+{% endblock %}

@@ -7,7 +7,7 @@ from typing import List, Dict
 from collections import defaultdict
 import threading
 import time
-from models import WireGuardConnection
+from models import WireGuardConnection, AlertRule
 
 class SecurityMonitor:
     def __init__(self, db):
@@ -19,7 +19,7 @@ class SecurityMonitor:
         self.sender_password = os.getenv("SMTP_PASSWORD")  # Optional
         self.recipient_email = os.getenv("ALERT_EMAIL")
         
-        # Thresholds for suspicious activity
+        # Default thresholds
         self.max_connections_per_hour = 10
         self.max_failed_attempts = 5
         self.traffic_spike_threshold = 1000000  # 1MB sudden increase
@@ -28,7 +28,11 @@ class SecurityMonitor:
         self.monitoring_thread = None
         self.stop_monitoring = False
         
-    def send_alert(self, subject: str, message: str):
+    def send_alert(self, subject: str, message: str, rule: AlertRule = None):
+        if rule and rule.action == 'log':
+            print(f"Alert Rule '{rule.name}' triggered: {message}")
+            return
+            
         if not all([self.sender_email, self.recipient_email]):
             print("Email configuration missing. Please set SMTP_EMAIL and ALERT_EMAIL")
             return
@@ -38,20 +42,77 @@ class SecurityMonitor:
         msg['To'] = self.recipient_email
         msg['Subject'] = f"WireGuard Security Alert: {subject}"
         
+        if rule:
+            message = f"Alert Rule '{rule.name}' triggered:\n\n{message}"
+        
         msg.attach(MIMEText(message, 'plain'))
         
         try:
             server = smtplib.SMTP(self.smtp_server, self.smtp_port)
-            
-            # Only use authentication if password is provided
             if self.sender_password:
                 server.login(self.sender_email, self.sender_password)
-                
             server.send_message(msg)
             server.quit()
             print(f"Security alert sent: {subject}")
         except Exception as e:
             print(f"Failed to send email alert: {str(e)}")
+    
+    def check_custom_rules(self):
+        """Check all enabled custom alert rules"""
+        rules = self.db.get_alert_rules()
+        now = datetime.now()
+        
+        for rule in rules:
+            if not rule.enabled:
+                continue
+                
+            # Skip if rule was triggered recently within its time window
+            if rule.last_triggered and (now - rule.last_triggered).total_seconds() < rule.time_window * 60:
+                continue
+            
+            # Prepare data for rule evaluation
+            data = {'value': 0}
+            
+            if rule.event_type == 'connection':
+                # Count connections in time window
+                connections = self.db.get_connections()
+                window_start = now - timedelta(minutes=rule.time_window)
+                count = sum(1 for conn in connections 
+                          if conn.timestamp >= window_start 
+                          and conn.event_type == 'connect')
+                data['value'] = count
+                
+            elif rule.event_type == 'traffic':
+                # Calculate traffic in time window
+                connections = self.db.get_connections()
+                window_start = now - timedelta(minutes=rule.time_window)
+                total_traffic = sum(
+                    conn.bytes_sent + conn.bytes_received
+                    for conn in connections
+                    if conn.timestamp >= window_start
+                )
+                data['value'] = total_traffic
+                
+            elif rule.event_type == 'bandwidth':
+                # Get bandwidth usage
+                usage = self.db.get_bandwidth_usage('hour')  # Use hourly data
+                if usage:
+                    max_bandwidth = max(
+                        (u['total_bytes_sent'] + u['total_bytes_received'])
+                        for u in usage
+                    )
+                    data['value'] = max_bandwidth
+            
+            # Evaluate rule
+            if rule.evaluate(data):
+                message = (
+                    f"Rule Condition: {rule.condition} {rule.threshold}\n"
+                    f"Current Value: {data['value']}\n"
+                    f"Time Window: {rule.time_window} minutes\n"
+                    f"Description: {rule.description}"
+                )
+                self.send_alert(f"Custom Rule: {rule.name}", message, rule)
+                self.db.update_rule_trigger_time(rule.id)
     
     def check_rapid_connections(self, connections: List[WireGuardConnection]) -> None:
         """Check for unusually rapid connection attempts from the same peer"""
@@ -106,6 +167,7 @@ class SecurityMonitor:
         connections = self.db.get_connections(limit=1000)  # Get last 1000 connections
         self.check_rapid_connections(connections)
         self.check_traffic_spikes(connections)
+        self.check_custom_rules()
     
     def run_monitoring_thread(self):
         """Background thread function to run periodic monitoring"""

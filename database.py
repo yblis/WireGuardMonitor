@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime
-from typing import List, Dict
-from models import WireGuardConnection
+from typing import List, Dict, Optional
+from models import WireGuardConnection, AlertRule
 
 class Database:
     def __init__(self, db_path: str = "wireguard_monitor.db"):
@@ -10,6 +10,7 @@ class Database:
 
     def init_db(self):
         with sqlite3.connect(self.db_path) as conn:
+            # Existing connections table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS connections (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +24,23 @@ class Database:
                 )
             """)
             
-            # Create index for faster queries
+            # New alert_rules table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS alert_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    condition TEXT NOT NULL,
+                    threshold REAL NOT NULL,
+                    time_window INTEGER NOT NULL,
+                    action TEXT NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    last_triggered DATETIME,
+                    description TEXT
+                )
+            """)
+            
+            # Create indexes
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_peer_timestamp 
                 ON connections(peer_id, timestamp)
@@ -98,11 +115,9 @@ class Database:
             ) for row in cursor.fetchall()]
 
     def get_bandwidth_usage(self, time_range: str = 'day') -> List[Dict]:
-        """Get bandwidth usage statistics per user for the specified time range"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             
-            # Define the time filter based on the range
             time_filters = {
                 'hour': "AND timestamp >= datetime('now', '-1 hour')",
                 'day': "AND timestamp >= datetime('now', '-1 day')",
@@ -130,3 +145,75 @@ class Database:
             
             cursor = conn.execute(query)
             return [dict(row) for row in cursor.fetchall()]
+
+    def add_alert_rule(self, rule: AlertRule) -> int:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO alert_rules 
+                (name, event_type, condition, threshold, time_window, action, enabled, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                rule.name,
+                rule.event_type,
+                rule.condition,
+                rule.threshold,
+                rule.time_window,
+                rule.action,
+                rule.enabled,
+                rule.description
+            ))
+            conn.commit()
+            return cursor.lastrowid
+
+    def update_alert_rule(self, rule: AlertRule) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                UPDATE alert_rules 
+                SET name=?, event_type=?, condition=?, threshold=?, 
+                    time_window=?, action=?, enabled=?, description=?
+                WHERE id=?
+            """, (
+                rule.name,
+                rule.event_type,
+                rule.condition,
+                rule.threshold,
+                rule.time_window,
+                rule.action,
+                rule.enabled,
+                rule.description,
+                rule.id
+            ))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_alert_rule(self, rule_id: int) -> bool:
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("DELETE FROM alert_rules WHERE id=?", (rule_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_alert_rules(self) -> List[AlertRule]:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT * FROM alert_rules ORDER BY name")
+            
+            return [AlertRule(
+                id=row['id'],
+                name=row['name'],
+                event_type=row['event_type'],
+                condition=row['condition'],
+                threshold=row['threshold'],
+                time_window=row['time_window'],
+                action=row['action'],
+                enabled=bool(row['enabled']),
+                last_triggered=datetime.fromisoformat(row['last_triggered']) if row['last_triggered'] else None,
+                description=row['description']
+            ) for row in cursor.fetchall()]
+
+    def update_rule_trigger_time(self, rule_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE alert_rules SET last_triggered=? WHERE id=?",
+                (datetime.now().isoformat(), rule_id)
+            )
+            conn.commit()
