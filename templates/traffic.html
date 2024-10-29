@@ -7,12 +7,29 @@
 </div>
 
 <script>
-const graphData = {{ graph_json | safe }};
-Plotly.newPlot('traffic-graph', graphData.data, graphData.layout);
+try {
+    const graphData = {{ graph_json | safe }};
+    if (graphData && graphData.data && graphData.data.length > 0) {
+        Plotly.newPlot('traffic-graph', graphData.data, graphData.layout);
+    } else {
+        document.getElementById('traffic-graph').innerHTML = 
+            '<div class="text-gray-500 text-center py-8">No traffic data available</div>';
+    }
+} catch (error) {
+    console.error('Error rendering traffic graph:', error);
+    document.getElementById('traffic-graph').innerHTML = 
+        '<div class="text-red-500 text-center py-8">Error loading traffic data</div>';
+}
 
 function updateTraffic(data) {
-    const trafficData = JSON.parse(data.traffic_graph);
-    Plotly.react('traffic-graph', trafficData.data, trafficData.layout);
+    try {
+        const trafficData = JSON.parse(data.traffic_graph);
+        if (trafficData && trafficData.data && trafficData.data.length > 0) {
+            Plotly.react('traffic-graph', trafficData.data, trafficData.layout);
+        }
+    } catch (error) {
+        console.error('Error updating traffic graph:', error);
+    }
 }
 </script>
 {% endblock %}

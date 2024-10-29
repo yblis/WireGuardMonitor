@@ -7,12 +7,29 @@
 </div>
 
 <script>
-const graphData = {{ graph_json | safe }};
-Plotly.newPlot('timeline-graph', graphData.data, graphData.layout);
+try {
+    const graphData = {{ graph_json | safe }};
+    if (graphData && graphData.data && graphData.data.length > 0) {
+        Plotly.newPlot('timeline-graph', graphData.data, graphData.layout);
+    } else {
+        document.getElementById('timeline-graph').innerHTML = 
+            '<div class="text-gray-500 text-center py-8">No connection history available</div>';
+    }
+} catch (error) {
+    console.error('Error rendering timeline graph:', error);
+    document.getElementById('timeline-graph').innerHTML = 
+        '<div class="text-red-500 text-center py-8">Error loading connection history</div>';
+}
 
 function updateConnections(data) {
-    const timelineData = JSON.parse(data.connection_timeline);
-    Plotly.react('timeline-graph', timelineData.data, timelineData.layout);
+    try {
+        const timelineData = JSON.parse(data.connection_timeline);
+        if (timelineData && timelineData.data && timelineData.data.length > 0) {
+            Plotly.react('timeline-graph', timelineData.data, timelineData.layout);
+        }
+    } catch (error) {
+        console.error('Error updating timeline:', error);
+    }
 }
 </script>
 {% endblock %}

@@ -4,67 +4,111 @@ import pandas as pd
 from database import Database
 from log_parser import WireGuardLogParser
 from utils import create_connection_timeline, create_traffic_graph
+from security_monitor import SecurityMonitor
+import sqlite3
+import traceback
+import atexit
 
 app = Flask(__name__)
 db = Database()
 parser = WireGuardLogParser()
+security_monitor = SecurityMonitor(db)
+
+def handle_db_error(error):
+    app.logger.error(f"Database error: {str(error)}\n{traceback.format_exc()}")
+    return "Database error occurred", 500
 
 @app.route('/')
 def dashboard():
-    active_connections = db.get_active_connections()
-    now = datetime.now()
-    active_data = [{
-        'peer_id': conn.peer_id,
-        'ip_address': conn.ip_address,
-        'connected_since': conn.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-        'duration': str(now - conn.timestamp).split('.')[0]
-    } for conn in active_connections]
-    
-    return render_template('dashboard.html', active_connections=active_data)
-
-@app.route('/connections')
-def connections():
-    connections = db.get_connections()
-    timeline = create_connection_timeline(connections)
-    graph_json = timeline.to_json()
-    return render_template('connections.html', graph_json=graph_json)
-
-@app.route('/traffic')
-def traffic():
-    connections = db.get_connections()
-    traffic_graph = create_traffic_graph(connections)
-    graph_json = traffic_graph.to_json()
-    return render_template('traffic.html', graph_json=graph_json)
-
-@app.route('/logs')
-def logs():
-    connections = db.get_connections()
-    logs_data = [{
-        'timestamp': conn.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-        'peer_id': conn.peer_id,
-        'event': conn.event_type.capitalize(),
-        'ip_address': conn.ip_address,
-        'bytes_sent': conn.bytes_sent,
-        'bytes_received': conn.bytes_received
-    } for conn in connections]
-    return render_template('logs.html', logs=logs_data)
-
-@app.route('/api/data')
-def api_data():
-    active_connections = db.get_active_connections()
-    connections = db.get_connections()
-    now = datetime.now()
-    
-    return jsonify({
-        'active_connections': [{
+    try:
+        active_connections = db.get_active_connections()
+        now = datetime.now()
+        active_data = [{
             'peer_id': conn.peer_id,
             'ip_address': conn.ip_address,
             'connected_since': conn.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
             'duration': str(now - conn.timestamp).split('.')[0]
-        } for conn in active_connections],
-        'connection_timeline': create_connection_timeline(connections).to_json(),
-        'traffic_graph': create_traffic_graph(connections).to_json()
-    })
+        } for conn in active_connections]
+        
+        return render_template('dashboard.html', active_connections=active_data)
+    except sqlite3.Error as e:
+        return handle_db_error(e)
+
+@app.route('/connections')
+def connections():
+    try:
+        connections = db.get_connections()
+        timeline = create_connection_timeline(connections)
+        graph_json = timeline.to_json()
+        return render_template('connections.html', graph_json=graph_json)
+    except sqlite3.Error as e:
+        return handle_db_error(e)
+    except Exception as e:
+        app.logger.error(f"Error generating connection timeline: {str(e)}\n{traceback.format_exc()}")
+        return render_template('connections.html', graph_json='{}')
+
+@app.route('/traffic')
+def traffic():
+    try:
+        connections = db.get_connections()
+        traffic_graph = create_traffic_graph(connections)
+        graph_json = traffic_graph.to_json()
+        return render_template('traffic.html', graph_json=graph_json)
+    except sqlite3.Error as e:
+        return handle_db_error(e)
+    except Exception as e:
+        app.logger.error(f"Error generating traffic graph: {str(e)}\n{traceback.format_exc()}")
+        return render_template('traffic.html', graph_json='{}')
+
+@app.route('/logs')
+def logs():
+    try:
+        connections = db.get_connections()
+        logs_data = [{
+            'timestamp': conn.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'peer_id': conn.peer_id,
+            'event': conn.event_type.capitalize(),
+            'ip_address': conn.ip_address,
+            'bytes_sent': conn.bytes_sent,
+            'bytes_received': conn.bytes_received
+        } for conn in connections]
+        return render_template('logs.html', logs=logs_data)
+    except sqlite3.Error as e:
+        return handle_db_error(e)
+
+@app.route('/api/data')
+def api_data():
+    try:
+        active_connections = db.get_active_connections()
+        connections = db.get_connections()
+        now = datetime.now()
+        
+        return jsonify({
+            'active_connections': [{
+                'peer_id': conn.peer_id,
+                'ip_address': conn.ip_address,
+                'connected_since': conn.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                'duration': str(now - conn.timestamp).split('.')[0]
+            } for conn in active_connections],
+            'connection_timeline': create_connection_timeline(connections).to_json(),
+            'traffic_graph': create_traffic_graph(connections).to_json()
+        })
+    except sqlite3.Error as e:
+        app.logger.error(f"Database error in API: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': 'Database error occurred'}), 500
+    except Exception as e:
+        app.logger.error(f"API error: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+def cleanup():
+    """Stop the security monitoring thread when the application exits"""
+    security_monitor.stop_monitoring_thread()
 
 if __name__ == '__main__':
+    # Start security monitoring
+    security_monitor.start_monitoring()
+    
+    # Register cleanup function
+    atexit.register(cleanup)
+    
     app.run(host='0.0.0.0', port=5000, debug=True)
