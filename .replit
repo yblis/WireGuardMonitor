@@ -13,10 +13,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "WireGuard Dashboard"
+args = "WireGuard Monitor"
 
 [[workflows.workflow]]
-name = "WireGuard Dashboard"
+name = "WireGuard Monitor"
 author = "agent"
 
 [workflows.workflow.metadata]
@@ -27,7 +27,7 @@ task = "packager.installForAll"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "streamlit run main.py"
+args = "python app.py"
 waitForPort = 5000
 
 [deployment]

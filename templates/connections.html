@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <h2 class="text-2xl font-bold mb-4">Connection History</h2>
+    <div id="timeline-graph"></div>
+</div>
+
+<script>
+const graphData = {{ graph_json | safe }};
+Plotly.newPlot('timeline-graph', graphData.data, graphData.layout);
+
+function updateConnections(data) {
+    const timelineData = JSON.parse(data.connection_timeline);
+    Plotly.react('timeline-graph', timelineData.data, timelineData.layout);
+}
+</script>
+{% endblock %}

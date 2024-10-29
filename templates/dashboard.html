@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <h2 class="text-2xl font-bold mb-4">Active Connections</h2>
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200" id="active-connections-table">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Peer ID</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP Address</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Connected Since</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for conn in active_connections %}
+                <tr>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ conn.peer_id }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ conn.ip_address }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ conn.connected_since }}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">{{ conn.duration }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function updateDashboard(data) {
+    const table = document.getElementById('active-connections-table').getElementsByTagName('tbody')[0];
+    let html = '';
+    data.active_connections.forEach(conn => {
+        html += `
+            <tr>
+                <td class="px-6 py-4 whitespace-nowrap">${conn.peer_id}</td>
+                <td class="px-6 py-4 whitespace-nowrap">${conn.ip_address}</td>
+                <td class="px-6 py-4 whitespace-nowrap">${conn.connected_since}</td>
+                <td class="px-6 py-4 whitespace-nowrap">${conn.duration}</td>
+            </tr>
+        `;
+    });
+    table.innerHTML = html;
+}
+</script>
+{% endblock %}

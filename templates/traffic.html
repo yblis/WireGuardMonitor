@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="bg-white shadow rounded-lg p-6">
+    <h2 class="text-2xl font-bold mb-4">Network Traffic</h2>
+    <div id="traffic-graph"></div>
+</div>
+
+<script>
+const graphData = {{ graph_json | safe }};
+Plotly.newPlot('traffic-graph', graphData.data, graphData.layout);
+
+function updateTraffic(data) {
+    const trafficData = JSON.parse(data.traffic_graph);
+    Plotly.react('traffic-graph', trafficData.data, trafficData.layout);
+}
+</script>
+{% endblock %}
